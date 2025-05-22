@@ -46,6 +46,12 @@ MAX_ANGLE = 90
 TRACK_WIDTH = 40
 
 ###
+# 3D Model parameters
+###
+PRISM_DEPTH = 100        # Depth/height of the base material in mm
+TRACK_CUTOUT_DEPTH = 20  # Depth of the track cutout in mm
+
+###
 # Game parameters
 ###
 N_CHECKPOINTS = 10

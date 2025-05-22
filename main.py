@@ -8,6 +8,9 @@ from scipy.spatial import ConvexHull
 from scipy import interpolate
 import argparse
 import svgwrite
+from shapely.geometry import LineString, Point
+import subprocess
+import os
 
 from constants import *
 
@@ -238,6 +241,93 @@ def save_track_svg(points, filename="track.svg"):
     dwg.add(path)
     dwg.save()
 
+def save_track_openscad(points, filename="track.scad"):
+    # Create a LineString from the track points
+    line = LineString(points)
+    
+    # Buffer the line to create a polygon representing the track area
+    # The buffer distance is half the track width
+    track_polygon = line.buffer(TRACK_WIDTH / 2)
+    
+    # Get the coordinates of the outer and inner boundaries
+    outer_coords = list(track_polygon.exterior.coords)
+    inner_coords = []
+    if hasattr(track_polygon, 'interiors') and len(track_polygon.interiors) > 0:
+        inner_coords = list(track_polygon.interiors[0].coords)
+    
+    # Create OpenSCAD script
+    with open(filename, 'w') as f:
+        # Base prism
+        f.write(f"// Base rectangular prism\n")
+        f.write(f"difference() {{\n")
+        f.write(f"    translate([0, 0, 0]) cube([{WIDTH}, {HEIGHT}, {PRISM_DEPTH}]);\n")
+        
+        # Track cutout
+        f.write(f"    // Track cutout\n")
+        f.write(f"    translate([0, 0, {PRISM_DEPTH - TRACK_CUTOUT_DEPTH}])\n")
+        f.write(f"    linear_extrude(height={TRACK_CUTOUT_DEPTH + 1}, center=false)\n")
+        f.write(f"    polygon(points=[")
+        
+        # Add outer boundary points
+        for i, (x, y) in enumerate(outer_coords):
+            # Flip y-coordinate as Pygame's origin is top-left, OpenSCAD's is bottom-left
+            if i > 0:
+                f.write(", ")
+            f.write(f"[{x}, {HEIGHT - y}]")
+        
+        # Add inner boundary points if they exist
+        if inner_coords:
+            for x, y in inner_coords:
+                f.write(f", [{x}, {HEIGHT - y}]")
+        
+        f.write("], paths=[[")
+        
+        # Add path indices for outer boundary
+        for i in range(len(outer_coords)):
+            if i > 0:
+                f.write(", ")
+            f.write(f"{i}")
+        
+        f.write("]")
+        
+        # Add inner boundary path if it exists
+        if inner_coords:
+            f.write(", [")
+            for i in range(len(inner_coords)):
+                if i > 0:
+                    f.write(", ")
+                f.write(f"{i + len(outer_coords)}")
+            f.write("]")
+        
+        f.write("]);\n")
+        f.write("}\n")
+
+def convert_scad_to_stl(scad_filename="track.scad", stl_filename="track.stl"):
+    """Convert SCAD file to STL using OpenSCAD command-line interface"""
+    try:
+        # Check if OpenSCAD is installed
+        subprocess.run(["openscad", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Run OpenSCAD to convert SCAD to STL
+        cmd = ["openscad", "-o", stl_filename, scad_filename]
+        result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if os.path.exists(stl_filename):
+            print(f"Successfully generated {stl_filename}")
+            return True
+        else:
+            print(f"Failed to generate {stl_filename}")
+            return False
+    
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting {scad_filename} to {stl_filename}: {e}")
+        print("Please make sure OpenSCAD is installed and in your PATH")
+        return False
+    except FileNotFoundError:
+        print("OpenSCAD not found. Please install OpenSCAD to generate STL files")
+        print("Download from: https://openscad.org/downloads.html")
+        return False
+
 ####
 ## Main function
 ####
@@ -272,6 +362,9 @@ def main(debug=True, draw_checkpoints_in_track=True):
     # Save the screen to PNG and SVG files
     pygame.image.save(screen, "track.png")
     save_track_svg(f_points)
+    save_track_openscad(f_points)
+    # Convert SCAD to STL
+    convert_scad_to_stl()
     
     while True: # main loop
         for event in pygame.event.get():
